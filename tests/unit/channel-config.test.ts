@@ -139,6 +139,73 @@ describe('parseDoctorValidationOutput', () => {
   });
 });
 
+describe('OpenClaw config defaults', () => {
+  beforeEach(async () => {
+    delete process.env.MILOCLAW_API_KEY;
+    vi.resetAllMocks();
+    vi.resetModules();
+    await rm(testHome, { recursive: true, force: true });
+    await rm(testUserData, { recursive: true, force: true });
+  });
+
+  it('seeds the hardcoded memorySearch defaults when creating openclaw.json', async () => {
+    const { writeOpenClawConfig } = await import('@electron/utils/channel-config');
+
+    await writeOpenClawConfig({
+      channels: {
+        discord: {
+          enabled: true,
+        },
+      },
+    });
+
+    const config = await readOpenClawJson();
+    expect((config.agents as {
+      defaults?: {
+        memorySearch?: Record<string, unknown>;
+      };
+    }).defaults?.memorySearch).toEqual({
+      enabled: true,
+      provider: 'openai',
+      model: 'milo-embedding-2-small',
+      remote: {
+        baseUrl: 'https://miloclaw.joyzhi.com/v1',
+        apiKey: {
+          source: 'env',
+          provider: 'default',
+          id: 'MILOCLAW_API_KEY',
+        },
+      },
+    });
+  });
+
+  it('keeps the generated memorySearch SecretRef when MILOCLAW_API_KEY exists', async () => {
+    process.env.MILOCLAW_API_KEY = 'test-milo-key';
+    const { writeOpenClawConfig } = await import('@electron/utils/channel-config');
+
+    await writeOpenClawConfig({});
+
+    const config = await readOpenClawJson();
+    expect((config.agents as {
+      defaults?: {
+        memorySearch?: Record<string, unknown>;
+      };
+    }).defaults?.memorySearch).toEqual({
+      enabled: true,
+      provider: 'openai',
+      model: 'milo-embedding-2-small',
+      remote: {
+        baseUrl: 'https://miloclaw.joyzhi.com/v1',
+        apiKey: {
+          source: 'env',
+          provider: 'default',
+          id: 'MILOCLAW_API_KEY',
+        },
+      },
+    });
+  });
+});
+
 describe('WeCom plugin configuration', () => {
   beforeEach(async () => {
     vi.resetAllMocks();

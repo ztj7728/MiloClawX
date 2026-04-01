@@ -33,6 +33,14 @@
       "autoEnable": true
     },
     {
+      "slug": "miloclaw-image-generation",
+      "repo": "ztj7728/miloclaw-image-generation",
+      "repoPath": ".",
+      "ref": "main",
+      "version": "main",
+      "autoEnable": true
+    },
+    {
       "slug": "find-skills",
       "repo": "vercel-labs/skills",
       "repoPath": "skills/find-skills",

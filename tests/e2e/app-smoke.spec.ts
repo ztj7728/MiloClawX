@@ -7,6 +7,19 @@ test.describe('ClawX Electron smoke flows', () => {
     await expect(page.getByTestId('setup-skip-button')).toBeVisible();
   });
 
+  test('locks the setup provider to MiloClaw', async ({ page }) => {
+    await expect(page.getByTestId('setup-page')).toBeVisible();
+
+    await page.getByTestId('setup-next-button').click();
+    await expect(page.getByTestId('setup-runtime-step')).toBeVisible();
+    await expect(page.getByTestId('setup-next-button')).toBeEnabled({ timeout: 90_000 });
+
+    await page.getByTestId('setup-next-button').click();
+    await expect(page.getByTestId('setup-provider-step')).toBeVisible();
+    await expect(page.getByTestId('setup-provider-locked')).toContainText('MiloClaw');
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+  });
+
   test('can skip setup and navigate to the models page', async ({ page }) => {
     await expect(page.getByTestId('setup-page')).toBeVisible();
     await page.getByTestId('setup-skip-button').click();

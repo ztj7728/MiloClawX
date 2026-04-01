@@ -4,6 +4,7 @@ import google from './google.svg';
 import openrouter from './openrouter.svg';
 import ark from './ark.svg';
 import moonshot from './moonshot.svg';
+import miloclaw from './miloclaw.svg';
 import siliconflow from './siliconflow.svg';
 import minimaxPortal from './minimax.svg';
 import qwenPortal from './qwen.svg';
@@ -17,6 +18,7 @@ export const providerIcons: Record<string, string> = {
     openrouter,
     ark,
     moonshot,
+    miloclaw,
     siliconflow,
     'minimax-portal': minimaxPortal,
     'minimax-portal-cn': minimaxPortal,

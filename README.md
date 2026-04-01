@@ -166,7 +166,7 @@ pnpm dev
 When you launch ClawX for the first time, the **Setup Wizard** will guide you through:
 
 1. **Language & Region** – Configure your preferred locale
-2. **AI Provider** – Add providers with API keys or OAuth (for providers that support browser/device login)
+2. **AI Provider** – Setup is locked to MiloClaw during onboarding; you can add other providers later in **Settings → AI Providers**
 3. **Skill Bundles** – Select pre-configured skills for common use cases
 4. **Verification** – Test your configuration before entering the main interface
 

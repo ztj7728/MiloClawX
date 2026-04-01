@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stripSystemdSupervisorEnv } from '@electron/gateway/config-sync-env';
+import { ensureGatewayBootstrapEnv, stripSystemdSupervisorEnv } from '@electron/gateway/config-sync-env';
 
 describe('stripSystemdSupervisorEnv', () => {
   it('removes systemd supervisor marker env vars', () => {
@@ -41,5 +41,34 @@ describe('stripSystemdSupervisorEnv', () => {
 
     expect(env).toEqual(before);
     expect(result).toEqual({ VALUE: '1' });
+  });
+});
+
+describe('ensureGatewayBootstrapEnv', () => {
+  it('injects a MiloClaw placeholder key when the env var is missing', () => {
+    expect(ensureGatewayBootstrapEnv({
+      OPENCLAW_GATEWAY_TOKEN: 'token',
+    })).toEqual({
+      OPENCLAW_GATEWAY_TOKEN: 'token',
+      MILOCLAW_API_KEY: 'clawx-bootstrap-placeholder',
+    });
+  });
+
+  it('does not override an existing MiloClaw key', () => {
+    expect(ensureGatewayBootstrapEnv({
+      MILOCLAW_API_KEY: 'real-key',
+      OPENCLAW_GATEWAY_TOKEN: 'token',
+    })).toEqual({
+      MILOCLAW_API_KEY: 'real-key',
+      OPENCLAW_GATEWAY_TOKEN: 'token',
+    });
+  });
+
+  it('treats an empty MiloClaw key as missing', () => {
+    expect(ensureGatewayBootstrapEnv({
+      MILOCLAW_API_KEY: '   ',
+    })).toEqual({
+      MILOCLAW_API_KEY: 'clawx-bootstrap-placeholder',
+    });
   });
 });

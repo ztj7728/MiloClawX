@@ -93,6 +93,7 @@ const getDefaultSkills = (t: TFunction): DefaultSkill[] => [
 ];
 
 import {
+  SETUP_PROVIDER_ID,
   SETUP_PROVIDERS,
   type ProviderAccount,
   type ProviderType,
@@ -133,7 +134,7 @@ export function Setup() {
   const [currentStep, setCurrentStep] = useState<number>(STEP.WELCOME);
 
   // Setup state
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(SETUP_PROVIDER_ID);
   const [providerConfigured, setProviderConfigured] = useState(false);
   const [apiKey, setApiKey] = useState('');
   // Installation state for the Installing step
@@ -611,7 +612,7 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div data-testid="setup-runtime-step" className="space-y-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">{t('runtime.title')}</h2>
         <div className="flex gap-2">
@@ -716,6 +717,8 @@ function ProviderContent({
 }: ProviderContentProps) {
   const { t, i18n } = useTranslation(['setup', 'settings']);
   const devModeUnlocked = useSettingsStore((state) => state.devModeUnlocked);
+  const lockedProviderId = providers[0]?.id ?? null;
+  const isProviderLocked = providers.length === 1;
   const [showKey, setShowKey] = useState(false);
   const [validating, setValidating] = useState(false);
   const [keyValid, setKeyValid] = useState<boolean | null>(null);
@@ -744,6 +747,12 @@ function ProviderContent({
   const [manualCodeInput, setManualCodeInput] = useState('');
   const [oauthError, setOauthError] = useState<string | null>(null);
   const pendingOAuthRef = useRef<{ accountId: string; label: string } | null>(null);
+
+  useEffect(() => {
+    if (isProviderLocked && selectedProvider !== lockedProviderId) {
+      onSelectProvider(lockedProviderId);
+    }
+  }, [isProviderLocked, lockedProviderId, onSelectProvider, selectedProvider]);
 
   // Manage OAuth events
   useEffect(() => {
@@ -900,6 +909,7 @@ function ProviderContent({
           )).apiKey;
           onApiKeyChange(storedKey || '');
         } else if (!cancelled) {
+          onSelectProvider(lockedProviderId);
           onConfiguredChange(false);
           onApiKeyChange('');
         }
@@ -910,7 +920,7 @@ function ProviderContent({
       }
     })();
     return () => { cancelled = true; };
-  }, [onApiKeyChange, onConfiguredChange, onSelectProvider, providers]);
+  }, [lockedProviderId, onApiKeyChange, onConfiguredChange, onSelectProvider, providers]);
 
   // When provider changes, load stored key + reset base URL
   useEffect(() => {
@@ -1162,7 +1172,7 @@ function ProviderContent({
   };
 
   return (
-    <div className="space-y-6">
+    <div data-testid="setup-provider-step" className="space-y-6">
       {/* Provider selector — dropdown */}
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
@@ -1180,20 +1190,16 @@ function ProviderContent({
           )}
         </div>
         <div className="relative" ref={providerMenuRef}>
-          <button
-            type="button"
-            aria-haspopup="listbox"
-            aria-expanded={providerMenuOpen}
-            onClick={() => setProviderMenuOpen((open) => !open)}
-            className={cn(
-              'w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
-              'flex items-center justify-between gap-2',
-              'focus:outline-none focus:ring-2 focus:ring-ring'
-            )}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              {selectedProvider && selectedProviderData ? (
-                selectedProviderIconUrl ? (
+          {isProviderLocked && selectedProviderData ? (
+            <div
+              data-testid="setup-provider-locked"
+              className={cn(
+                'w-full rounded-md border border-input bg-muted/40 px-3 py-2 text-sm',
+                'flex items-center gap-2'
+              )}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {selectedProviderIconUrl ? (
                   <img
                     src={selectedProviderIconUrl}
                     alt={selectedProviderData.name}
@@ -1201,58 +1207,90 @@ function ProviderContent({
                   />
                 ) : (
                   <span className="text-sm leading-none shrink-0">{selectedProviderData.icon}</span>
-                )
-              ) : (
-                <span className="text-xs text-muted-foreground shrink-0">—</span>
+                )}
+                <span className="truncate text-left">
+                  {selectedProviderData.id === 'custom' ? t('settings:aiProviders.custom') : selectedProviderData.name}
+                  {selectedProviderData.model ? ` — ${selectedProviderData.model}` : ''}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={providerMenuOpen}
+                onClick={() => setProviderMenuOpen((open) => !open)}
+                className={cn(
+                  'w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+                  'flex items-center justify-between gap-2',
+                  'focus:outline-none focus:ring-2 focus:ring-ring'
+                )}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {selectedProvider && selectedProviderData ? (
+                    selectedProviderIconUrl ? (
+                      <img
+                        src={selectedProviderIconUrl}
+                        alt={selectedProviderData.name}
+                        className={cn('h-4 w-4 shrink-0', shouldInvertInDark(selectedProviderData.id) && 'dark:invert')}
+                      />
+                    ) : (
+                      <span className="text-sm leading-none shrink-0">{selectedProviderData.icon}</span>
+                    )
+                  ) : (
+                    <span className="text-xs text-muted-foreground shrink-0">—</span>
+                  )}
+                  <span className={cn('truncate text-left', !selectedProvider && 'text-muted-foreground')}>
+                    {selectedProviderData
+                      ? `${selectedProviderData.id === 'custom' ? t('settings:aiProviders.custom') : selectedProviderData.name}${selectedProviderData.model ? ` — ${selectedProviderData.model}` : ''}`
+                      : t('provider.selectPlaceholder')}
+                  </span>
+                </div>
+                <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform', providerMenuOpen && 'rotate-180')} />
+              </button>
+
+              {providerMenuOpen && (
+                <div
+                  role="listbox"
+                  className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-64 overflow-auto"
+                >
+                  {providers.map((p) => {
+                    const iconUrl = getProviderIconUrl(p.id);
+                    const isSelected = selectedProvider === p.id;
+
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => handleSelectProvider(p.id)}
+                        className={cn(
+                          'w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2',
+                          'hover:bg-accent transition-colors',
+                          isSelected && 'bg-accent/60'
+                        )}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={p.name}
+                              className={cn('h-4 w-4 shrink-0', shouldInvertInDark(p.id) && 'dark:invert')}
+                            />
+                          ) : (
+                            <span className="text-sm leading-none shrink-0">{p.icon}</span>
+                          )}
+                          <span className="truncate">{p.id === 'custom' ? t('settings:aiProviders.custom') : p.name}{p.model ? ` — ${p.model}` : ''}</span>
+                        </div>
+                        {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-              <span className={cn('truncate text-left', !selectedProvider && 'text-muted-foreground')}>
-                {selectedProviderData
-                  ? `${selectedProviderData.id === 'custom' ? t('settings:aiProviders.custom') : selectedProviderData.name}${selectedProviderData.model ? ` — ${selectedProviderData.model}` : ''}`
-                  : t('provider.selectPlaceholder')}
-              </span>
-            </div>
-            <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform', providerMenuOpen && 'rotate-180')} />
-          </button>
-
-          {providerMenuOpen && (
-            <div
-              role="listbox"
-              className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-64 overflow-auto"
-            >
-              {providers.map((p) => {
-                const iconUrl = getProviderIconUrl(p.id);
-                const isSelected = selectedProvider === p.id;
-
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => handleSelectProvider(p.id)}
-                    className={cn(
-                      'w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2',
-                      'hover:bg-accent transition-colors',
-                      isSelected && 'bg-accent/60'
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {iconUrl ? (
-                        <img
-                          src={iconUrl}
-                          alt={p.name}
-                          className={cn('h-4 w-4 shrink-0', shouldInvertInDark(p.id) && 'dark:invert')}
-                        />
-                      ) : (
-                        <span className="text-sm leading-none shrink-0">{p.icon}</span>
-                      )}
-                      <span className="truncate">{p.id === 'custom' ? t('settings:aiProviders.custom') : p.name}{p.model ? ` — ${p.model}` : ''}</span>
-                    </div>
-                    {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
+            </>
           )}
         </div>
       </div>

@@ -27,7 +27,7 @@ import { syncProxyConfigToOpenClaw } from '../utils/openclaw-proxy';
 import { logger } from '../utils/logger';
 import { prependPathEntry } from '../utils/env-path';
 import { copyPluginFromNodeModules, fixupPluginManifest, cpSyncSafe } from '../utils/plugin-install';
-import { stripSystemdSupervisorEnv } from './config-sync-env';
+import { ensureGatewayBootstrapEnv, stripSystemdSupervisorEnv } from './config-sync-env';
 
 
 export interface GatewayLaunchContext {
@@ -42,6 +42,7 @@ export interface GatewayLaunchContext {
   proxySummary: string;
   channelStartupSummary: string;
 }
+
 
 // ── Auto-upgrade bundled plugins on startup ──────────────────────
 
@@ -354,7 +355,7 @@ export async function prepareGatewayLaunchContext(port: number): Promise<Gateway
   const baseEnvPatched = binPathExists
     ? prependPathEntry(baseEnvRecord, binPath).env
     : baseEnvRecord;
-  const forkEnv: Record<string, string | undefined> = {
+  const forkEnv = ensureGatewayBootstrapEnv({
     ...stripSystemdSupervisorEnv(baseEnvPatched),
     ...providerEnv,
     ...uvEnv,
@@ -363,7 +364,7 @@ export async function prepareGatewayLaunchContext(port: number): Promise<Gateway
     OPENCLAW_SKIP_CHANNELS: skipChannels ? '1' : '',
     CLAWDBOT_SKIP_CHANNELS: skipChannels ? '1' : '',
     OPENCLAW_NO_RESPAWN: '1',
-  };
+  });
 
   return {
     appSettings,

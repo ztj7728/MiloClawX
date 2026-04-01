@@ -12,6 +12,7 @@ import { getOpenClawResolvedDir } from './paths';
 import * as logger from './logger';
 import { proxyAwareFetch } from './proxy-fetch';
 import { withConfigLock } from './config-mutex';
+import { ensureGeneratedOpenClawConfigDefaults } from './openclaw-config-defaults';
 import {
     OPENCLAW_WECHAT_CHANNEL_TYPE,
     isWechatChannelType,
@@ -353,6 +354,10 @@ export async function writeOpenClawConfig(config: OpenClawConfig): Promise<void>
     await ensureConfigDir();
 
     try {
+        if (!(await fileExists(CONFIG_FILE))) {
+            ensureGeneratedOpenClawConfigDefaults(config as Record<string, unknown>);
+        }
+
         // Enable graceful in-process reload authorization for SIGUSR1 flows.
         const commands =
             config.commands && typeof config.commands === 'object'

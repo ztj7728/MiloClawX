@@ -395,6 +395,41 @@ describe('sanitizeOpenClawConfig', () => {
   });
 });
 
+describe('generated openclaw.json defaults', () => {
+  beforeEach(async () => {
+    delete process.env.MILOCLAW_API_KEY;
+    vi.resetModules();
+    vi.restoreAllMocks();
+    await rm(testHome, { recursive: true, force: true });
+    await rm(testUserData, { recursive: true, force: true });
+  });
+
+  it('seeds the hardcoded memorySearch defaults when auth helpers create the config', async () => {
+    const { syncBrowserConfigToOpenClaw } = await import('@electron/utils/openclaw-auth');
+
+    await syncBrowserConfigToOpenClaw();
+
+    const config = await readOpenClawJson();
+    expect((config.agents as {
+      defaults?: {
+        memorySearch?: Record<string, unknown>;
+      };
+    }).defaults?.memorySearch).toEqual({
+      enabled: true,
+      provider: 'openai',
+      model: 'milo-embedding-2-small',
+      remote: {
+        baseUrl: 'https://miloclaw.joyzhi.com/v1',
+        apiKey: {
+          source: 'env',
+          provider: 'default',
+          id: 'MILOCLAW_API_KEY',
+        },
+      },
+    });
+  });
+});
+
 describe('auth-backed provider discovery', () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -487,6 +522,14 @@ describe('auth-backed provider discovery', () => {
           { id: 'main', name: 'Main', default: true, workspace: '~/.openclaw/workspace', agentDir: '~/.openclaw/agents/main/agent' },
           { id: 'work', name: 'Work', workspace: '~/.openclaw/workspace-work', agentDir: '~/.openclaw/agents/work/agent' },
         ],
+        defaults: {
+          model: {
+            primary: 'custom-abc12345/chat-model',
+          },
+          imageModel: {
+            primary: 'custom-abc12345/image-model',
+          },
+        },
       },
       models: {
         providers: {
@@ -558,7 +601,84 @@ describe('auth-backed provider discovery', () => {
     expect(mainProfiles.lastGood).toEqual({});
     expect((config.auth as { profiles?: Record<string, unknown> }).profiles).toEqual({});
     expect((config.models as { providers?: Record<string, unknown> }).providers).toEqual({});
+    expect((config.agents as {
+      defaults?: {
+        model?: Record<string, unknown>;
+        imageModel?: Record<string, unknown>;
+      };
+    }).defaults).toEqual({
+      model: {},
+      imageModel: {},
+    });
     expect(result.providers).toEqual({});
     await expect(getActiveOpenClawProviders()).resolves.toEqual(new Set());
+  });
+});
+
+describe('default model config sync', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    await rm(testHome, { recursive: true, force: true });
+    await rm(testUserData, { recursive: true, force: true });
+  });
+
+  it('writes imageModel alongside the default model config', async () => {
+    await writeOpenClawJson({});
+
+    const { setOpenClawDefaultModel } = await import('@electron/utils/openclaw-auth');
+
+    await setOpenClawDefaultModel('openai', 'openai/gpt-4o', ['openai/gpt-4.1-mini']);
+
+    const config = await readOpenClawJson();
+    expect((config.agents as {
+      defaults?: {
+        model?: Record<string, unknown>;
+        imageModel?: Record<string, unknown>;
+      };
+    }).defaults).toEqual({
+      model: {
+        primary: 'openai/gpt-4o',
+        fallbacks: ['openai/gpt-4.1-mini'],
+      },
+      imageModel: {
+        primary: 'openai/gpt-4o',
+        fallbacks: ['openai/gpt-4.1-mini'],
+      },
+    });
+  });
+
+  it('writes imageModel through the runtime override path too', async () => {
+    await writeOpenClawJson({});
+
+    const { setOpenClawDefaultModelWithOverride } = await import('@electron/utils/openclaw-auth');
+
+    await setOpenClawDefaultModelWithOverride(
+      'custom-runtime',
+      'custom-runtime/vision-pro',
+      {
+        baseUrl: 'https://example.test/v1',
+        api: 'openai-completions',
+        apiKeyEnv: 'CUSTOM_RUNTIME_API_KEY',
+      },
+      ['custom-runtime/vision-lite'],
+    );
+
+    const config = await readOpenClawJson();
+    expect((config.agents as {
+      defaults?: {
+        model?: Record<string, unknown>;
+        imageModel?: Record<string, unknown>;
+      };
+    }).defaults).toEqual({
+      model: {
+        primary: 'custom-runtime/vision-pro',
+        fallbacks: ['custom-runtime/vision-lite'],
+      },
+      imageModel: {
+        primary: 'custom-runtime/vision-pro',
+        fallbacks: ['custom-runtime/vision-lite'],
+      },
+    });
   });
 });
