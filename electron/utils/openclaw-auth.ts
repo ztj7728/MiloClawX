@@ -25,6 +25,7 @@ import {
   isOpenClawOAuthPluginProviderKey,
 } from './provider-keys';
 import { withConfigLock } from './config-mutex';
+import { ensureGeneratedOpenClawConfigDefaults } from './openclaw-config-defaults';
 
 const AUTH_STORE_VERSION = 1;
 const AUTH_PROFILE_FILENAME = 'auth-profiles.json';
@@ -348,6 +349,10 @@ function normalizeAgentsDefaultsCompactionMode(config: Record<string, unknown>):
 }
 
 async function writeOpenClawJson(config: Record<string, unknown>): Promise<void> {
+  if (!(await fileExists(OPENCLAW_CONFIG_PATH))) {
+    ensureGeneratedOpenClawConfigDefaults(config);
+  }
+
   normalizeAgentsDefaultsCompactionMode(config);
 
   // Ensure SIGUSR1 graceful reload is authorized by OpenClaw config.
@@ -567,24 +572,9 @@ export async function removeProviderFromOpenClaw(provider: string): Promise<void
       const agentDefaults = (agents?.defaults && typeof agents.defaults === 'object'
         ? agents.defaults as Record<string, unknown>
         : null);
-      if (agentDefaults?.model && typeof agentDefaults.model === 'object') {
-        const modelCfg = agentDefaults.model as Record<string, unknown>;
-        const prefix = `${provider}/`;
-
-        if (typeof modelCfg.primary === 'string' && modelCfg.primary.startsWith(prefix)) {
-          delete modelCfg.primary;
-          modified = true;
-          console.log(`Removed deleted provider "${provider}" from agents.defaults.model.primary`);
-        }
-
-        if (Array.isArray(modelCfg.fallbacks)) {
-          const filtered = (modelCfg.fallbacks as string[]).filter((fb) => !fb.startsWith(prefix));
-          if (filtered.length !== modelCfg.fallbacks.length) {
-            modelCfg.fallbacks = filtered.length > 0 ? filtered : undefined;
-            modified = true;
-            console.log(`Removed deleted provider "${provider}" from agents.defaults.model.fallbacks`);
-          }
-        }
+      if (agentDefaults) {
+        modified = removeProviderRefsFromAgentDefaultModel(agentDefaults, 'model', provider) || modified;
+        modified = removeProviderRefsFromAgentDefaultModel(agentDefaults, 'imageModel', provider) || modified;
       }
 
       if (modified) {
@@ -636,10 +626,7 @@ export async function setOpenClawDefaultModel(
     // Set the default model for the agents
     const agents = (config.agents || {}) as Record<string, unknown>;
     const defaults = (agents.defaults || {}) as Record<string, unknown>;
-    defaults.model = {
-      primary: model,
-      fallbacks: fallbackModels,
-    };
+    syncAgentDefaultModelConfigs(defaults, model, fallbackModels);
     agents.defaults = defaults;
     config.agents = agents;
 
@@ -711,6 +698,51 @@ function extractFallbackModelIds(provider: string, fallbackModels: string[]): st
   return fallbackModels
     .filter((fallback) => fallback.startsWith(`${provider}/`))
     .map((fallback) => fallback.slice(provider.length + 1));
+}
+
+function syncAgentDefaultModelConfigs(
+  defaults: Record<string, unknown>,
+  model: string,
+  fallbackModels: string[],
+): void {
+  const nextConfig = {
+    primary: model,
+    fallbacks: fallbackModels,
+  };
+  defaults.model = nextConfig;
+  defaults.imageModel = { ...nextConfig };
+}
+
+function removeProviderRefsFromAgentDefaultModel(
+  defaults: Record<string, unknown>,
+  key: 'model' | 'imageModel',
+  provider: string,
+): boolean {
+  const target = defaults[key];
+  if (!target || typeof target !== 'object') {
+    return false;
+  }
+
+  const modelCfg = target as Record<string, unknown>;
+  const prefix = `${provider}/`;
+  let modified = false;
+
+  if (typeof modelCfg.primary === 'string' && modelCfg.primary.startsWith(prefix)) {
+    delete modelCfg.primary;
+    modified = true;
+    console.log(`Removed deleted provider "${provider}" from agents.defaults.${key}.primary`);
+  }
+
+  if (Array.isArray(modelCfg.fallbacks)) {
+    const filtered = (modelCfg.fallbacks as string[]).filter((fb) => !fb.startsWith(prefix));
+    if (filtered.length !== modelCfg.fallbacks.length) {
+      modelCfg.fallbacks = filtered.length > 0 ? filtered : undefined;
+      modified = true;
+      console.log(`Removed deleted provider "${provider}" from agents.defaults.${key}.fallbacks`);
+    }
+  }
+
+  return modified;
 }
 
 function mergeProviderModels(
@@ -916,10 +948,7 @@ export async function setOpenClawDefaultModelWithOverride(
 
     const agents = (config.agents || {}) as Record<string, unknown>;
     const defaults = (agents.defaults || {}) as Record<string, unknown>;
-    defaults.model = {
-      primary: model,
-      fallbacks: fallbackModels,
-    };
+    syncAgentDefaultModelConfigs(defaults, model, fallbackModels);
     agents.defaults = defaults;
     config.agents = agents;
 

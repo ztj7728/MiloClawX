@@ -5,6 +5,12 @@ import { readFileSync, existsSync, mkdirSync, rmSync, cpSync, writeFileSync } fr
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.platform === 'win32') {
+  // zx defaults to bash; explicitly use PowerShell on Windows so command
+  // quoting works even when Git Bash / WSL is not installed.
+  usePowerShell();
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const MANIFEST_PATH = join(ROOT, 'resources', 'skills', 'preinstalled-manifest.json');

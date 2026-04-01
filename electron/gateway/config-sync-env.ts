@@ -6,6 +6,7 @@ export const SUPERVISED_SYSTEMD_ENV_KEYS = [
 ] as const;
 
 export type GatewayEnv = Record<string, string | undefined>;
+const MILOCLAW_BOOTSTRAP_API_KEY_PLACEHOLDER = 'clawx-bootstrap-placeholder';
 
 /**
  * OpenClaw CLI treats certain environment variables as systemd supervisor hints.
@@ -17,6 +18,14 @@ export function stripSystemdSupervisorEnv(env: GatewayEnv): GatewayEnv {
   const next = { ...env };
   for (const key of SUPERVISED_SYSTEMD_ENV_KEYS) {
     delete next[key];
+  }
+  return next;
+}
+
+export function ensureGatewayBootstrapEnv(env: GatewayEnv): GatewayEnv {
+  const next = { ...env };
+  if (!next.MILOCLAW_API_KEY?.trim()) {
+    next.MILOCLAW_API_KEY = MILOCLAW_BOOTSTRAP_API_KEY_PLACEHOLDER;
   }
   return next;
 }

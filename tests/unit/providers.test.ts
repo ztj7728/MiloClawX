@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   PROVIDER_TYPES,
+  SETUP_PROVIDER_ID,
+  SETUP_PROVIDERS,
   PROVIDER_TYPE_INFO,
   getProviderDocsUrl,
   resolveProviderApiKeyForSave,
@@ -58,8 +60,19 @@ describe('provider metadata', () => {
 
   it('keeps builtin provider sources in sync', () => {
     expect(BUILTIN_PROVIDER_TYPES).toEqual(
-      expect.arrayContaining(['anthropic', 'openai', 'google', 'openrouter', 'ark', 'moonshot', 'siliconflow', 'minimax-portal', 'minimax-portal-cn', 'modelstudio', 'ollama'])
+      expect.arrayContaining(['anthropic', 'openai', 'google', 'openrouter', 'ark', 'moonshot', 'miloclaw', 'siliconflow', 'minimax-portal', 'minimax-portal-cn', 'qwen-portal', 'ollama'])
     );
+  });
+
+  it('locks setup providers to MiloClaw', () => {
+    expect(SETUP_PROVIDER_ID).toBe('miloclaw');
+    expect(SETUP_PROVIDERS).toHaveLength(1);
+    expect(SETUP_PROVIDERS[0]).toMatchObject({
+      id: 'miloclaw',
+      name: 'MiloClaw',
+      defaultBaseUrl: 'https://miloclaw.joyzhi.com/v1',
+      defaultModelId: 'milo-2',
+    });
   });
 
   it('uses OpenAI-compatible Ollama default base URL', () => {

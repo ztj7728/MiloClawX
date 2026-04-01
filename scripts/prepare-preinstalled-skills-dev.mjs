@@ -5,6 +5,12 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.platform === 'win32') {
+  // Match the bundle script's shell selection so nested zx execution works on
+  // stock Windows environments without bash.
+  usePowerShell();
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const lockPath = join(ROOT, 'build', 'preinstalled-skills', '.preinstalled-lock.json');
