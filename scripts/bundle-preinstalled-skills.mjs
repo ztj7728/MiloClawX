@@ -1,7 +1,7 @@
 #!/usr/bin/env zx
 
 import 'zx/globals';
-import { readFileSync, existsSync, mkdirSync, rmSync, cpSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, rmSync, cpSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,7 +15,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const MANIFEST_PATH = join(ROOT, 'resources', 'skills', 'preinstalled-manifest.json');
 const OUTPUT_ROOT = join(ROOT, 'build', 'preinstalled-skills');
+const STAGING_OUTPUT_ROOT = join(ROOT, 'build', '.preinstalled-skills-staging');
 const TMP_ROOT = join(ROOT, 'build', '.tmp-preinstalled-skills');
+
+function parsePositiveInt(rawValue, fallback) {
+  const parsed = Number.parseInt(rawValue ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const FETCH_RETRIES = parsePositiveInt(process.env.CLAWX_PREINSTALLED_SKILLS_FETCH_RETRIES, 3);
+const FETCH_RETRY_DELAY_MS = parsePositiveInt(process.env.CLAWX_PREINSTALLED_SKILLS_FETCH_RETRY_DELAY_MS, 2000);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function loadManifest() {
   if (!existsSync(MANIFEST_PATH)) {
@@ -107,6 +120,31 @@ async function fetchSparseRepo(repo, ref, paths, checkoutDir) {
   return commit;
 }
 
+async function fetchSparseRepoWithRetry(repo, ref, paths, checkoutDir) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt += 1) {
+    rmSync(checkoutDir, { recursive: true, force: true });
+    try {
+      return await fetchSparseRepo(repo, ref, paths, checkoutDir);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= FETCH_RETRIES) break;
+      const delayMs = FETCH_RETRY_DELAY_MS * attempt;
+      echo`   warning: fetch failed (${error?.message || error}); retrying in ${delayMs}ms...`;
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
+function hasUsableExistingBundle(manifestEntries) {
+  const lockPath = join(OUTPUT_ROOT, '.preinstalled-lock.json');
+  if (!existsSync(lockPath)) return false;
+  return manifestEntries.every((entry) => existsSync(join(OUTPUT_ROOT, entry.slug, 'SKILL.md')));
+}
+
 echo`Bundling preinstalled skills...`;
 
 if (process.env.SKIP_PREINSTALLED_SKILLS === '1') {
@@ -116,58 +154,71 @@ if (process.env.SKIP_PREINSTALLED_SKILLS === '1') {
 
 const manifestSkills = loadManifest();
 
-rmSync(OUTPUT_ROOT, { recursive: true, force: true });
-mkdirSync(OUTPUT_ROOT, { recursive: true });
 rmSync(TMP_ROOT, { recursive: true, force: true });
 mkdirSync(TMP_ROOT, { recursive: true });
+rmSync(STAGING_OUTPUT_ROOT, { recursive: true, force: true });
+mkdirSync(STAGING_OUTPUT_ROOT, { recursive: true });
 
 const lock = {
   generatedAt: new Date().toISOString(),
   skills: [],
 };
 
-const groups = groupByRepoRef(manifestSkills);
-for (const group of groups) {
-  const repoDir = join(TMP_ROOT, createRepoDirName(group.repo, group.ref));
-  const sparsePaths = [...new Set(group.entries.map((entry) => entry.repoPath))];
+try {
+  const groups = groupByRepoRef(manifestSkills);
+  for (const group of groups) {
+    const repoDir = join(TMP_ROOT, createRepoDirName(group.repo, group.ref));
+    const sparsePaths = [...new Set(group.entries.map((entry) => entry.repoPath))];
 
-  echo`Fetching ${group.repo} @ ${group.ref}`;
-  const commit = await fetchSparseRepo(group.repo, group.ref, sparsePaths, repoDir);
-  echo`   commit ${commit}`;
+    echo`Fetching ${group.repo} @ ${group.ref}`;
+    const commit = await fetchSparseRepoWithRetry(group.repo, group.ref, sparsePaths, repoDir);
+    echo`   commit ${commit}`;
 
-  for (const entry of group.entries) {
-    const sourceDir = join(repoDir, entry.repoPath);
-    const targetDir = join(OUTPUT_ROOT, entry.slug);
+    for (const entry of group.entries) {
+      const sourceDir = join(repoDir, entry.repoPath);
+      const targetDir = join(STAGING_OUTPUT_ROOT, entry.slug);
 
-    if (!existsSync(sourceDir)) {
-      throw new Error(`Missing source path in repo checkout: ${entry.repoPath}`);
+      if (!existsSync(sourceDir)) {
+        throw new Error(`Missing source path in repo checkout: ${entry.repoPath}`);
+      }
+
+      rmSync(targetDir, { recursive: true, force: true });
+      cpSync(sourceDir, targetDir, { recursive: true, dereference: true, filter: shouldCopySkillFile });
+
+      const skillManifest = join(targetDir, 'SKILL.md');
+      if (!existsSync(skillManifest)) {
+        throw new Error(`Skill ${entry.slug} is missing SKILL.md after copy`);
+      }
+
+      const requestedVersion = (entry.version || '').trim();
+      const resolvedVersion = !requestedVersion || requestedVersion === 'main'
+        ? commit
+        : requestedVersion;
+      lock.skills.push({
+        slug: entry.slug,
+        version: resolvedVersion,
+        repo: entry.repo,
+        repoPath: entry.repoPath,
+        ref: group.ref,
+        commit,
+      });
+
+      echo`   OK ${entry.slug}`;
     }
-
-    rmSync(targetDir, { recursive: true, force: true });
-    cpSync(sourceDir, targetDir, { recursive: true, dereference: true, filter: shouldCopySkillFile });
-
-    const skillManifest = join(targetDir, 'SKILL.md');
-    if (!existsSync(skillManifest)) {
-      throw new Error(`Skill ${entry.slug} is missing SKILL.md after copy`);
-    }
-
-    const requestedVersion = (entry.version || '').trim();
-    const resolvedVersion = !requestedVersion || requestedVersion === 'main'
-      ? commit
-      : requestedVersion;
-    lock.skills.push({
-      slug: entry.slug,
-      version: resolvedVersion,
-      repo: entry.repo,
-      repoPath: entry.repoPath,
-      ref: group.ref,
-      commit,
-    });
-
-    echo`   OK ${entry.slug}`;
   }
-}
 
-writeFileSync(join(OUTPUT_ROOT, '.preinstalled-lock.json'), `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
-rmSync(TMP_ROOT, { recursive: true, force: true });
-echo`Preinstalled skills ready: ${OUTPUT_ROOT}`;
+  writeFileSync(join(STAGING_OUTPUT_ROOT, '.preinstalled-lock.json'), `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  rmSync(OUTPUT_ROOT, { recursive: true, force: true });
+  renameSync(STAGING_OUTPUT_ROOT, OUTPUT_ROOT);
+  echo`Preinstalled skills ready: ${OUTPUT_ROOT}`;
+} catch (error) {
+  rmSync(STAGING_OUTPUT_ROOT, { recursive: true, force: true });
+  if (hasUsableExistingBundle(manifestSkills)) {
+    echo`Warning: failed to refresh preinstalled skills: ${error?.message || error}`;
+    echo`Reusing existing preinstalled skills bundle: ${OUTPUT_ROOT}`;
+    process.exit(0);
+  }
+  throw error;
+} finally {
+  rmSync(TMP_ROOT, { recursive: true, force: true });
+}
