@@ -114,6 +114,11 @@ win:
   # Skip update signature verification: we ship via OSS + GitHub without a
   # code-signing certificate, so verifying would always fail on the updater.
   verifyUpdateCodeSignature: false
+  # Keep Windows packaging unsigned. We restore the main app exe metadata in
+  # after-pack.cjs, so electron-builder no longer needs its legacy winCodeSign
+  # helper archive, which fails to extract on Windows hosts without symlink
+  # privileges.
+  signAndEditExecutable: false
   extraResources:
     - from: resources/bin/win32-${arch}
       to: bin

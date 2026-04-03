@@ -21,6 +21,7 @@
 
 const { cpSync, existsSync, readdirSync, rmSync, statSync, mkdirSync, realpathSync } = require('fs');
 const { join, dirname, basename, relative } = require('path');
+const { execFileSync } = require('child_process');
 
 // On Windows, paths in pnpm's virtual store can exceed the default MAX_PATH
 // limit (260 chars). Node.js 18.17+ respects the system LongPathsEnabled
@@ -38,6 +39,71 @@ const ARCH_MAP = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' 
 
 function resolveArch(archEnum) {
   return ARCH_MAP[archEnum] || 'x64';
+}
+
+async function restoreWindowsAppExeMetadata(context, appOutDir) {
+  const { appInfo, platformSpecificBuildOptions } = context.packager;
+  const exePath = join(appOutDir, `${appInfo.productFilename}.exe`);
+  if (!existsSync(exePath)) {
+    console.warn(`[after-pack] Warning: app exe not found for metadata restore: ${exePath}`);
+    return;
+  }
+
+  const args = [
+    exePath,
+    '--set-version-string', 'FileDescription', appInfo.productName,
+    '--set-version-string', 'ProductName', appInfo.productName,
+    '--set-version-string', 'LegalCopyright', appInfo.copyright,
+    '--set-file-version', appInfo.shortVersion || appInfo.buildVersion,
+    '--set-product-version', appInfo.shortVersionWindows || appInfo.getVersionInWeirdWindowsForm(),
+    '--set-version-string', 'InternalName', appInfo.productFilename,
+    '--set-version-string', 'OriginalFilename', `${appInfo.productFilename}.exe`,
+  ];
+
+  if (appInfo.companyName) {
+    args.push('--set-version-string', 'CompanyName', appInfo.companyName);
+  }
+  if (platformSpecificBuildOptions.legalTrademarks) {
+    args.push('--set-version-string', 'LegalTrademarks', platformSpecificBuildOptions.legalTrademarks);
+  }
+
+  const iconPath = join(__dirname, '..', 'resources', 'icons', 'icon.ico');
+  if (existsSync(iconPath)) {
+    args.push('--set-icon', iconPath);
+  }
+
+  if (
+    platformSpecificBuildOptions.requestedExecutionLevel &&
+    platformSpecificBuildOptions.requestedExecutionLevel !== 'asInvoker'
+  ) {
+    args.push('--set-requested-execution-level', platformSpecificBuildOptions.requestedExecutionLevel);
+  }
+
+  const rceditDir = join(__dirname, '..', '.cache', 'rcedit-windows-2_0_0');
+  const zipPath = join(rceditDir, 'rcedit-windows-2_0_0.zip');
+  const extractDir = join(rceditDir, 'extract');
+  const rceditPath = join(extractDir, 'rcedit-x64.exe');
+
+  if (!existsSync(rceditPath)) {
+    mkdirSync(rceditDir, { recursive: true });
+    const downloadUrl = 'https://github.com/electron-userland/electron-builder-binaries/releases/download/win-codesign@1.1.0/rcedit-windows-2_0_0.zip';
+    const psCommand = [
+      "$ErrorActionPreference='Stop'",
+      `$zip='${zipPath.replace(/'/g, "''")}'`,
+      `$dir='${extractDir.replace(/'/g, "''")}'`,
+      `if (-not (Test-Path $zip)) { Invoke-WebRequest '${downloadUrl}' -OutFile $zip }`,
+      'if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }',
+      'Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force',
+    ].join('; ');
+
+    console.log('[after-pack] Downloading standalone rcedit helper ...');
+    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCommand], {
+      stdio: 'inherit',
+    });
+  }
+
+  execFileSync(rceditPath, args, { stdio: 'inherit' });
+  console.log(`[after-pack] Restored Windows exe metadata: ${basename(exePath)}`);
 }
 
 // ── General cleanup ──────────────────────────────────────────────────────────
@@ -763,6 +829,12 @@ exports.default = async function afterPack(context) {
   // $INSTDIR to a _stale_ directory, so the target is always an empty dir.
   // The Nsis7z plugin streams LZMA2 data directly to disk — no temp copy needed.
   if (platform === 'win32') {
+    try {
+      await restoreWindowsAppExeMetadata(context, appOutDir);
+    } catch (err) {
+      console.warn(`[after-pack] Warning: failed to restore Windows exe metadata: ${err.message}`);
+    }
+
     const extractNsh = join(
       __dirname, '..', 'node_modules', 'app-builder-lib',
       'templates', 'nsis', 'include', 'extractAppPackage.nsh'
